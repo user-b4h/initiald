@@ -14,6 +14,7 @@
             overflow: hidden; 
             background-color: #87ceeb; 
             font-family: 'Orbitron', sans-serif; 
+            transition: background-color 1.2s ease;
         }
 
         .arcade-text {
@@ -178,6 +179,7 @@
     </style>
 </head>
 <body>
+
     <div class="scanline"></div>
 
     <div id="controller-status" style="display: none;">
@@ -220,6 +222,10 @@
             <div class="settings-row" data-setting="rival">
                 <span class="text-gray-400">RIVAL LEVEL</span>
                 <span id="setting-rival-val" class="text-[#ffcc00] font-bold">NORMAL</span>
+            </div>
+            <div class="settings-row" data-setting="timeofday">
+                <span class="text-gray-400">TIME OF DAY</span>
+                <span id="setting-tod-val" class="text-[#ffcc00] font-bold">DAY</span>
             </div>
             <div class="settings-row" data-setting="graphics">
                 <span class="text-gray-400">GRAPHICS</span>
@@ -281,6 +287,15 @@
     </div>
 
     <script>
+        const PLAYER_MAX_SPEED       = 180;
+        const RIVAL_BASE_MAX_SPEED   = 180;
+
+        const RIVAL_DIFFICULTY_MULTIPLIERS = {
+            easy:   1.35,
+            normal: 1.40,
+            hard:   1.45
+        };
+
         let scene, camera, renderer, clock;
         let playerCar, rivalCar;
         let roadPoints = [];
@@ -316,7 +331,6 @@
         let rivalTargetLane = -6.0;
         let rivalCurrentLaneOffset = -6.0;
         let rivalSpeed = 0;
-        let rivalTargetSpeed = 0;
 
         let idleTimeout;
         const IDLE_TIME = 15000;
@@ -333,6 +347,46 @@
         let prevGamepadButtons = {};
 
         const controllerStatusEl = document.getElementById('controller-status');
+
+        let currentRivalMaxSpeed = RIVAL_BASE_MAX_SPEED;
+
+        const config = {
+            duration: 60,
+            rivalDifficulty: 'normal',
+            graphics: 'high',
+            timeOfDay: 'day'
+        };
+
+        let currentTimeOfDay = 'day';
+        let sunLight, ambientLight;
+
+        function updateTimeOfDay(applyToBody = true) {
+            if (!scene || !sunLight || !ambientLight) return;
+
+            if (currentTimeOfDay === 'day') {
+                scene.background = new THREE.Color(0x87ceeb);
+                scene.fog.color = new THREE.Color(0x87ceeb);
+                scene.fog.near = 200;
+                scene.fog.far = config.graphics === 'high' ? 1000 : 600;
+
+                sunLight.intensity = 1.2;
+                sunLight.color.setHex(0xffffff);
+                ambientLight.intensity = 0.8;
+
+                if (applyToBody) document.body.style.backgroundColor = '#87ceeb';
+            } else {
+                scene.background = new THREE.Color(0x0a1a3a);
+                scene.fog.color = new THREE.Color(0x0a1a3a);
+                scene.fog.near = 120;
+                scene.fog.far = config.graphics === 'high' ? 700 : 450;
+
+                sunLight.intensity = 0.35;
+                sunLight.color.setHex(0x88aaff);
+                ambientLight.intensity = 0.35;
+
+                if (applyToBody) document.body.style.backgroundColor = '#0a1a3a';
+            }
+        }
 
         function updateControllerStatus() {
             if (screenActive !== 'start') {
@@ -482,12 +536,6 @@
             }
         }
 
-        const config = {
-            duration: 60,
-            rivalDifficulty: 1.0, 
-            graphics: 'high'
-        };
-        
         const TRACK_WIDTH = 24;
         const RIVAL_LANE_OFFSET = -6.0;
 
@@ -653,12 +701,16 @@
                                 config.duration = Math.max(30, Math.min(180, config.duration + (step * 30)));
                                 document.getElementById('setting-time-val').innerText = config.duration + 's';
                             } else if (setting === 'rival') {
-                                const levels = [0.8, 1.0, 1.3];
-                                const labels = ["EASY", "NORMAL", "HARD"];
+                                const levels = ['easy','normal','hard'];
                                 let currIdx = levels.indexOf(config.rivalDifficulty);
                                 currIdx = (currIdx + step + levels.length) % levels.length;
                                 config.rivalDifficulty = levels[currIdx];
-                                document.getElementById('setting-rival-val').innerText = labels[currIdx];
+                                document.getElementById('setting-rival-val').innerText = levels[currIdx].toUpperCase();
+                            } else if (setting === 'timeofday') {
+                                config.timeOfDay = config.timeOfDay === 'day' ? 'night' : 'day';
+                                document.getElementById('setting-tod-val').innerText = config.timeOfDay.toUpperCase();
+                                currentTimeOfDay = config.timeOfDay;
+                                updateTimeOfDay(true);
                             } else if (setting === 'graphics') {
                                 config.graphics = config.graphics === 'high' ? 'low' : 'high';
                                 document.getElementById('setting-graphics-val').innerText = config.graphics.toUpperCase();
@@ -788,12 +840,16 @@
                     config.duration = Math.max(30, Math.min(180, config.duration + (step * 30)));
                     document.getElementById('setting-time-val').innerText = config.duration + 's';
                 } else if (setting === 'rival') {
-                    const levels = [0.8, 1.0, 1.3];
-                    const labels = ["EASY", "NORMAL", "HARD"];
+                    const levels = ['easy','normal','hard'];
                     let currIdx = levels.indexOf(config.rivalDifficulty);
                     currIdx = (currIdx + step + levels.length) % levels.length;
                     config.rivalDifficulty = levels[currIdx];
-                    document.getElementById('setting-rival-val').innerText = labels[currIdx];
+                    document.getElementById('setting-rival-val').innerText = levels[currIdx].toUpperCase();
+                } else if (setting === 'timeofday') {
+                    config.timeOfDay = config.timeOfDay === 'day' ? 'night' : 'day';
+                    document.getElementById('setting-tod-val').innerText = config.timeOfDay.toUpperCase();
+                    currentTimeOfDay = config.timeOfDay;
+                    updateTimeOfDay(true);
                 } else if (setting === 'graphics') {
                     config.graphics = config.graphics === 'high' ? 'low' : 'high';
                     document.getElementById('setting-graphics-val').innerText = config.graphics.toUpperCase();
@@ -812,11 +868,12 @@
             if (!renderer) return;
             if (config.graphics === 'low') {
                 renderer.shadowMap.enabled = false;
-                scene.fog.far = 600;
+                scene.fog.far = currentTimeOfDay === 'day' ? 600 : 450;
             } else {
                 renderer.shadowMap.enabled = true;
-                scene.fog.far = 1000;
+                scene.fog.far = currentTimeOfDay === 'day' ? 1000 : 700;
             }
+            updateTimeOfDay(false);
         }
 
         function init() {
@@ -832,10 +889,10 @@
 
             clock = new THREE.Clock();
 
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
             scene.add(ambientLight);
 
-            const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
             sunLight.position.set(200, 400, 100);
             sunLight.castShadow = true;
             scene.add(sunLight);
@@ -853,6 +910,9 @@
             ground.position.y = -0.15;
             ground.receiveShadow = true;
             scene.add(ground);
+
+            currentTimeOfDay = config.timeOfDay;
+            updateTimeOfDay(true);
 
             animate();
             resetIdleTimer();
@@ -1034,6 +1094,11 @@
             stopFinishBGM();
             updateControllerStatus();
             
+            currentRivalMaxSpeed = RIVAL_BASE_MAX_SPEED * (RIVAL_DIFFICULTY_MULTIPLIERS[config.rivalDifficulty] || 1.0);
+
+            currentTimeOfDay = config.timeOfDay;
+            updateTimeOfDay(false);
+
             const startPoint = roadPoints[0];
             const startTangent = curve.getTangentAt(0);
             const startAngle = Math.atan2(startTangent.x, startTangent.z);
@@ -1051,9 +1116,8 @@
             playerTotalProgress = 0;
             rivalTotalProgress = 0;
             rivalSpeed = 0;
-            rivalTargetSpeed = 220 * config.rivalDifficulty;
-            rivalCurrentLaneOffset = RIVAL_LANE_OFFSET;
             rivalTargetLane = RIVAL_LANE_OFFSET;
+            rivalCurrentLaneOffset = RIVAL_LANE_OFFSET;
             timeLeft = config.duration;
             gameActive = false;
             countdownActive = true;
@@ -1123,7 +1187,6 @@
                     speed *= 0.62;
                     if (speed < 35) speed = 35;
                     rivalSpeed *= 0.7;
-                    rivalTargetSpeed *= 0.85;
                 } else if (demoActive) {
                     playerCar.position.add(pushDir.clone().multiplyScalar(1.0));
                     rivalCar.position.add(pushDir.clone().multiplyScalar(-1.0));
@@ -1174,7 +1237,7 @@
             speed += accel * delta;
             speed *= 0.988;
             if (speed < 0.3) speed = 0;
-            if (speed > 220) speed = 220;
+            speed = Math.min(speed, PLAYER_MAX_SPEED);
 
             if (gameActive && speed > 10) {
                 const speedSensitivity = Math.min(1.0, speed / 110);
@@ -1219,33 +1282,28 @@
                 checkpointAnnounceTimer = setTimeout(() => announce.classList.add('hidden'), 2200);
             }
 
-            const playerOverall = playerTotalProgress + playerProgress;
-            const progressDiff = rivalTotalProgress - playerOverall;
-            rivalTargetSpeed = 220 * config.rivalDifficulty;
-            if (progressDiff < -0.05) rivalTargetSpeed *= 1.25 + Math.random() * 0.08;
-            else if (progressDiff > 0.08) rivalTargetSpeed *= 0.92 - config.rivalDifficulty * 0.08;
+            let targetSpeed = currentRivalMaxSpeed;
+            targetSpeed = Math.max(100, Math.min(targetSpeed, currentRivalMaxSpeed));
 
-            rivalSpeed += (rivalTargetSpeed - rivalSpeed) * 0.7 * delta;
+            rivalSpeed += (targetSpeed - rivalSpeed) * 0.75 * delta;
+            rivalSpeed = Math.max(0, rivalSpeed);
+
             rivalTotalProgress += (rivalSpeed / 4800) * delta;
 
-            const distanceToPlayer = playerCar.position.distanceTo(rivalCar.position);
-            if (distanceToPlayer < 22) {
-                const baseP = curve.getPointAt(rivalTotalProgress % 1);
-                const tangentP = curve.getTangentAt(rivalTotalProgress % 1);
-                const sideP = new THREE.Vector3().crossVectors(tangentP, new THREE.Vector3(0,1,0)).normalize();
-                const dot = new THREE.Vector3().subVectors(playerCar.position, baseP).dot(sideP);
-                rivalTargetLane = dot > 0 ? -Math.abs(RIVAL_LANE_OFFSET) : Math.abs(RIVAL_LANE_OFFSET);
-            } else {
-                rivalTargetLane = RIVAL_LANE_OFFSET;
-            }
-
+            rivalTargetLane = RIVAL_LANE_OFFSET;
             rivalCurrentLaneOffset += (rivalTargetLane - rivalCurrentLaneOffset) * 0.12;
+
             const rivalT = rivalTotalProgress % 1;
             const rBasePos = curve.getPointAt(rivalT);
             const rTangent = curve.getTangentAt(rivalT);
             const rSide = new THREE.Vector3().crossVectors(rTangent, new THREE.Vector3(0,1,0)).normalize();
-            const sway = Math.sin(clock.getElapsedTime() * 2.5 + rivalTotalProgress * 40) * 1.2;
-            rivalCar.position.copy(rBasePos).add(rSide.clone().multiplyScalar(rivalCurrentLaneOffset + sway)).add(new THREE.Vector3(0, 0.1, 0));
+
+            const sway = Math.sin(clock.getElapsedTime() * 2.5 + rivalTotalProgress * 40) * 0.6;
+
+            rivalCar.position.copy(rBasePos)
+                .add(rSide.clone().multiplyScalar(rivalCurrentLaneOffset + sway))
+                .add(new THREE.Vector3(0, 0.1, 0));
+            
             rivalCar.rotation.y = getCarRotationAtProgress(rivalT) + (sway * 0.01);
 
             handleCarCollision(delta);
@@ -1260,8 +1318,9 @@
             const timerEl = document.getElementById('timer');
             timerEl.innerText = timeLeft.toFixed(2);
             timerEl.className = timeLeft < 10 ? "text-4xl font-black italic time-warning" : "text-4xl font-black italic";
-            document.getElementById('lap-display').innerText = `LAP ${Math.floor(playerOverall) + 1}`;
-            document.getElementById('rank').innerText = (playerOverall > rivalTotalProgress) ? "1st / 2" : "2nd / 2";
+            document.getElementById('lap-display').innerText = `LAP ${Math.floor(playerTotalProgress + playerProgress) + 1}`;
+            document.getElementById('rank').innerText = 
+                (playerTotalProgress + playerProgress > rivalTotalProgress) ? "1st / 2" : "2nd / 2";
         }
 
         function updateDemo(delta) {
